@@ -312,7 +312,7 @@ export function CaptureView() {
                         handleAddKnowledgeBase();
                       }
                     }}
-                    className="w-full"
+                    
                   />
                 </div>
               </div>
