@@ -1,28 +1,66 @@
-import { useState } from "react";
-import pocklmLogo from "@/assets/pocket_lm.svg";
-import { Button } from "@/components/ui/button";
+import { Upload, MessageCircle } from "lucide-react";
+import { Header } from "@/components/Header";
+import { CaptureView } from "@/components/CaptureView";
+import { ChatView } from "@/components/ChatView";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
+/**
+ * Main App Component
+ *
+ * This is the root component of the Pocket LM extension popup.
+ * It manages the main navigation between two views:
+ *
+ * 1. Capture Tab - For storing texts and URLs to knowledge bases
+ * 2. Chat Tab - For asking questions about captured knowledge
+ *
+ * The component structure:
+ * - TooltipProvider: Enables tooltips throughout the app
+ * - Header: Shows logo, branding, and theme toggle
+ * - Tabs: Allows switching between Capture and Chat views
+ *   - TabsList: The navigation buttons (Capture/Chat)
+ *   - TabsContent: The actual content for each tab
+ * - Toaster: Displays toast notifications (success messages, etc.)
+ */
 function App() {
-  const [count, setCount] = useState(0);
-
   return (
-    <div
-      id="root"
-      className="w-[20rem] h-[20rem] flex flex-col items-center justify-center gap-4 p-4"
-    >
-      <div>
-        <a href="#" target="_blank">
-          <img src={pocklmLogo} className="logo" alt="Pocket LM logo" />
-        </a>
+    <TooltipProvider>
+      <div className="w-[400px] h-[600px] flex flex-col overflow-hidden">
+      {/* Top header with logo and controls */}
+      <Header />
+
+      {/* Main content area with tabs */}
+      <Tabs defaultValue="capture" className="flex-1 h-full flex flex-col">
+        {/* Tab navigation buttons */}
+        <div className="px-6 pt-2">
+          <TabsList className="w-full grid grid-cols-2">
+            <TabsTrigger value="capture" className="gap-2">
+              <Upload className="w-4 h-4" />
+              Capture
+            </TabsTrigger>
+            <TabsTrigger value="chat" className="gap-2">
+              <MessageCircle className="w-4 h-4" />
+              Chat
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Capture tab content */}
+        <TabsContent value="capture" className="flex-1 mt-0">
+          <CaptureView />
+        </TabsContent>
+
+        {/* Chat tab content */}
+        <TabsContent value="chat" className="flex-1 mt-0">
+          <ChatView />
+        </TabsContent>
+      </Tabs>
+
+      {/* Toast notification system */}
+      <Toaster />
       </div>
-      <h1 className="text-xl font-medium">Pocket LM Chrome Extension</h1>
-      <Button variant="outline" onClick={() => setCount((count) => count + 1)}>
-        count is {count}
-      </Button>
-      <p className="text-sm text-muted-foreground">
-        Edit <code>src/App.tsx</code> and save to test HMR
-      </p>
-    </div>
+    </TooltipProvider>
   );
 }
 
