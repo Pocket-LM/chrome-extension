@@ -127,9 +127,56 @@ export default defineBackground(() => {
 
       // Clear the stored text after sending it
       capturedText = '';
+      return true;
     }
 
-    // Return true to indicate we'll respond asynchronously
-    return true;
+    if (message.type === 'GET_FRESH_CONTEXT') {
+      console.log('Popup requested fresh context');
+
+      // Get fresh context from current tab
+      (async () => {
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+
+        if (tabs[0]) {
+          const url = tabs[0].url || '';
+          const title = tabs[0].title || '';
+
+          // Detect if PDF
+          const isPdf = url.toLowerCase().endsWith('.pdf') ||
+                        url.startsWith('file://') && url.toLowerCase().includes('.pdf');
+          const pdfSource = url.startsWith('file://') ? 'local' : 'online';
+
+          // Try to get selected text
+          let selectedText = '';
+          try {
+            const results = await browser.scripting.executeScript({
+              target: { tabId: tabs[0].id! },
+              func: () => window.getSelection()?.toString() || ''
+            });
+            selectedText = results[0]?.result || '';
+          } catch (error) {
+            console.log('Could not get selected text:', error);
+          }
+
+          const context = {
+            selectedText,
+            currentUrl: url,
+            pageTitle: title,
+            isPdf,
+            pdfSource
+          };
+
+          console.log('Sending fresh context:', context);
+          sendResponse(context);
+        } else {
+          sendResponse(null);
+        }
+      })();
+
+      // Return true to indicate we'll respond asynchronously
+      return true;
+    }
+
+    return false;
   });
 });

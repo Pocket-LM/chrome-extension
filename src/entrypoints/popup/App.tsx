@@ -26,7 +26,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 function App() {
   return (
     <TooltipProvider>
-      <div className="w-[400px] h-[600px] flex flex-col overflow-hidden">
+      <div className="w-[400px] h-[600px] flex flex-col overflow-hidden bg-background text-foreground">
       {/* Top header with logo and controls */}
       <Header />
 
@@ -47,12 +47,12 @@ function App() {
         </div>
 
         {/* Capture tab content */}
-        <TabsContent value="capture" className="flex-1 mt-0">
+        <TabsContent value="capture" className="flex-1 mt-0 overflow-hidden">
           <CaptureView />
         </TabsContent>
 
         {/* Chat tab content */}
-        <TabsContent value="chat" className="flex-1 mt-0">
+        <TabsContent value="chat" className="flex-1 mt-0 overflow-hidden">
           <ChatView />
         </TabsContent>
       </Tabs>

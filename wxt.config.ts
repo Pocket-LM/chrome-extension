@@ -7,7 +7,7 @@ export default defineConfig({
   srcDir: "src",
   modules: ["@wxt-dev/module-react"],
   manifest: {
-    permissions: ["contextMenus", "activeTab"],
+    permissions: ["contextMenus", "activeTab", "tabs", "scripting", "storage"],
     /**
      * Keyboard Commands
      *

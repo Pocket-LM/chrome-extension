@@ -1,5 +1,6 @@
-import { Brain, Moon } from "lucide-react";
+import { Brain, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/hooks/use-theme";
 
 /**
  * Header Component
@@ -7,11 +8,13 @@ import { Button } from "@/components/ui/button";
  * Displays the top bar of the extension with:
  * - Pocket LM logo and branding
  * - Active status indicator (yellow lightning bolt)
- * - Theme toggle button (moon icon)
+ * - Theme toggle button (moon/sun icon)
  */
 export function Header() {
+  const { theme, toggleTheme } = useTheme();
+
   return (
-    <header className="flex items-center justify-between p-2 border-b border-gray-100">
+    <header className="flex items-center justify-between p-2 border-b border-border">
       {/* Left side: Logo and branding */}
       <div className="flex items-center gap-3">
         {/* Purple gradient logo circle with brain icon */}
@@ -21,7 +24,7 @@ export function Header() {
 
         {/* Brand name and status */}
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold text-gray-900">Pocket LM</h1>
+          <h1 className="text-xl font-bold text-foreground">Pocket LM</h1>
           <span className="flex items-center gap-1 text-sm text-yellow-600 font-medium">
             ⚡ Active
           </span>
@@ -33,12 +36,13 @@ export function Header() {
         variant="ghost"
         size="icon"
         className="rounded-full w-10 h-10"
-        onClick={() => {
-          // TODO: Implement theme toggle functionality
-          console.log("Theme toggle clicked");
-        }}
+        onClick={toggleTheme}
       >
-        <Moon className="w-5 h-5 text-gray-600" />
+        {theme === 'light' ? (
+          <Moon className="w-5 h-5" />
+        ) : (
+          <Sun className="w-5 h-5" />
+        )}
       </Button>
     </header>
   );

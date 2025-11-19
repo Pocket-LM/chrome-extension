@@ -1,4 +1,4 @@
-import { FileText, Database, Bookmark, Plus, Mouse, Link } from "lucide-react";
+import { FileText, Database, Bookmark, Plus, Mouse, Link, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { captureKnowledge, listCollections, createCollection } from "@/services/api";
 
 /**
  * CaptureView Component
@@ -56,13 +57,9 @@ export function CaptureView() {
 
   /**
    * STATE: Store list of knowledge bases
-   * Starts with 3 default options, users can add more
+   * Loaded from backend API
    */
-  const [knowledgeBases, setKnowledgeBases] = useState([
-    { id: "general", name: "General Knowledge" },
-    { id: "work", name: "Work Notes" },
-    { id: "research", name: "Research" },
-  ]);
+  const [knowledgeBases, setKnowledgeBases] = useState<string[]>([]);
 
   /**
    * STATE: New knowledge base name input
@@ -76,47 +73,128 @@ export function CaptureView() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   /**
+   * STATE: Command dropdown visibility
+   */
+  const [showCommandDropdown, setShowCommandDropdown] = useState(false);
+
+  /**
+   * STATE: Available commands based on context
+   */
+  const [availableCommands, setAvailableCommands] = useState<{
+    command: string;
+    description: string;
+    available: boolean;
+  }[]>([]);
+
+  /**
+   * STATE: Context from current page
+   */
+  const [pageContext, setPageContext] = useState<{
+    hasSelection: boolean;
+    isPdf: boolean;
+    currentUrl: string;
+  }>({
+    hasSelection: false,
+    isPdf: false,
+    currentUrl: '',
+  });
+
+  /**
    * HOOK: Toast for showing success notifications
    */
   const { toast } = useToast();
 
   /**
-   * EFFECT: Request captured text from background script when component mounts
-   *
-   * This runs once when the CaptureView component is first displayed.
-   * It asks the background script "do you have any captured text for me?"
+   * STATE: Loading state for capture operations
+   */
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  /**
+   * EFFECT: Request captured text, page context, and load knowledge bases on mount
    */
   useEffect(() => {
-    /**
-     * Send a message to the background script
-     *
-     * browser.runtime.sendMessage() sends a message to background.ts
-     * - First parameter: The message object { type: 'GET_CAPTURED_TEXT' }
-     * - Second parameter: Callback function that receives the response
-     */
+    // Request captured text
     browser.runtime.sendMessage(
       { type: 'GET_CAPTURED_TEXT' },
       (response: { text: string }) => {
         if (response && response.text) {
           console.log('Received captured text:', response.text);
-          // Update the state with the captured text
           setCapturedText(response.text);
         }
       }
     );
-  }, []); // Empty array means this runs only once when component mounts
+
+    // Request fresh page context
+    browser.runtime.sendMessage(
+      { type: 'GET_FRESH_CONTEXT' },
+      (context: any) => {
+        if (context) {
+          console.log('Received page context:', context);
+          setPageContext({
+            hasSelection: !!context.selectedText,
+            isPdf: context.isPdf,
+            currentUrl: context.currentUrl,
+          });
+          updateAvailableCommands(!!context.selectedText, context.isPdf);
+        }
+      }
+    );
+
+    // Load knowledge bases from API
+    loadKnowledgeBases();
+  }, []);
+
+  /**
+   * Load knowledge bases from backend
+   */
+  async function loadKnowledgeBases() {
+    try {
+      const response = await listCollections();
+      if (response.status === 'success' && response.data) {
+        setKnowledgeBases(response.data);
+        // Set first collection as default if available
+        if (response.data.length > 0) {
+          setSelectedKnowledgeBase(response.data[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load knowledge bases:', error);
+      toast({
+        title: "Failed to load knowledge bases",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  }
+
+  /**
+   * Update available commands based on page context
+   */
+  function updateAvailableCommands(hasSelection: boolean, isPdf: boolean) {
+    const commands = [
+      {
+        command: '/select',
+        description: 'Capture selected text',
+        available: hasSelection,
+      },
+      {
+        command: '/url',
+        description: 'Capture current page URL',
+        available: true,
+      },
+      {
+        command: '/pdf',
+        description: 'Capture PDF document',
+        available: isPdf,
+      },
+    ];
+    setAvailableCommands(commands);
+  }
 
   /**
    * HANDLER: Save captured content to knowledge base
-   *
-   * This function handles the save button click:
-   * 1. Validates that there's text to save
-   * 2. Saves to the selected knowledge base (placeholder for now)
-   * 3. Shows a success toast notification
-   * 4. Clears the input field
    */
-  const handleSave = () => {
-    // Check if there's any text to save
+  const handleSave = async () => {
+    // Validate input
     if (!capturedText.trim()) {
       toast({
         title: "Nothing to save",
@@ -125,36 +203,213 @@ export function CaptureView() {
       return;
     }
 
-    // Find the knowledge base name from the list
-    const selectedKB = knowledgeBases.find(kb => kb.id === selectedKnowledgeBase);
-    const knowledgeBaseName = selectedKB?.name || selectedKnowledgeBase;
+    // Validate knowledge base is selected
+    if (!selectedKnowledgeBase) {
+      toast({
+        title: "No knowledge base selected",
+        description: "Please select a knowledge base first.",
+      });
+      return;
+    }
 
-    // TODO: Actually save to storage/backend
-    console.log("Saving to knowledge base:", selectedKnowledgeBase);
-    console.log("Content:", capturedText);
+    setIsCapturing(true);
 
-    // Show success toast
-    toast({
-      title: "✓ Knowledge captured successfully!",
-      description: `Saved to ${knowledgeBaseName}`,
+    try {
+      // Try to parse as JSON (for structured data like PDFs)
+      let captureData;
+      try {
+        captureData = JSON.parse(capturedText);
+      } catch {
+        // Plain text - determine if it's a URL or selection
+        captureData = {
+          type: isUrl(capturedText) ? 'url' : 'selection',
+          content: capturedText,
+        };
+      }
+
+      // Route to appropriate API call based on type
+      if (captureData.type === 'pdf') {
+        await handlePdfCapture(captureData);
+      } else if (captureData.type === 'url' || isUrl(captureData.content)) {
+        await handleUrlCapture(captureData.content);
+      } else {
+        await handleSelectionCapture(captureData.content);
+      }
+
+      // Clear input on success
+      setCapturedText("");
+
+    } catch (error) {
+      console.error('Save error:', error);
+      toast({
+        title: "Error saving",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  /**
+   * Helper: Check if string is a URL
+   */
+  function isUrl(text: string): boolean {
+    try {
+      new URL(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Handle URL capture
+   */
+  async function handleUrlCapture(url: string) {
+    const response = await captureKnowledge({
+      type: 'url',
+      knowledge_base: selectedKnowledgeBase,
+      url: url,
     });
 
-    // Clear the input field
-    setCapturedText("");
+    toast({
+      title: "✓ URL captured!",
+      description: response.message,
+    });
+  }
+
+  /**
+   * Handle text selection capture
+   */
+  async function handleSelectionCapture(selection: string) {
+    // For selection, we need the current page URL as well
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const currentUrl = tabs[0]?.url || '';
+
+    const response = await captureKnowledge({
+      type: 'selection',
+      knowledge_base: selectedKnowledgeBase,
+      url: currentUrl,
+      selection: selection,
+    });
+
+    toast({
+      title: "✓ Text captured!",
+      description: response.message,
+    });
+  }
+
+  /**
+   * Handle PDF capture
+   */
+  async function handlePdfCapture(captureData: any) {
+    if (captureData.source === 'local' && captureData.url) {
+      // Fetch local PDF file
+      const fileResponse = await fetch(captureData.url);
+      if (!fileResponse.ok) {
+        throw new Error('Failed to read local PDF file');
+      }
+      const blob = await fileResponse.blob();
+      const file = new File([blob], captureData.title || 'document.pdf', { type: 'application/pdf' });
+
+      const response = await captureKnowledge({
+        type: 'pdf',
+        knowledge_base: selectedKnowledgeBase,
+        pdf: file,
+      });
+
+      toast({
+        title: "✓ PDF captured!",
+        description: response.message,
+      });
+    } else if (captureData.url) {
+      // Online PDF - send URL
+      const response = await captureKnowledge({
+        type: 'pdf',
+        knowledge_base: selectedKnowledgeBase,
+        url: captureData.url,
+      });
+
+      toast({
+        title: "✓ PDF captured!",
+        description: response.message,
+      });
+    }
+  }
+
+  /**
+   * HANDLER: Input change - detect "/" for command dropdown
+   */
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setCapturedText(value);
+
+    // Show command dropdown if user types "/"
+    if (value === '/') {
+      setShowCommandDropdown(true);
+    } else {
+      setShowCommandDropdown(false);
+    }
+  };
+
+  /**
+   * HANDLER: Command selection
+   */
+  const handleCommandSelect = async (command: string) => {
+    setShowCommandDropdown(false);
+
+    if (command === '/select') {
+      // Request fresh context to get selected text
+      browser.runtime.sendMessage(
+        { type: 'GET_FRESH_CONTEXT' },
+        (context: any) => {
+          if (context && context.selectedText) {
+            setCapturedText(context.selectedText);
+            toast({
+              title: "Text selected",
+              description: "Selected text loaded into capture field",
+            });
+          }
+        }
+      );
+    } else if (command === '/url') {
+      // Get current tab URL
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.url) {
+        setCapturedText(tabs[0].url);
+        toast({
+          title: "URL captured",
+          description: "Current page URL loaded",
+        });
+      }
+    } else if (command === '/pdf') {
+      // Get PDF info from context
+      browser.runtime.sendMessage(
+        { type: 'GET_FRESH_CONTEXT' },
+        (context: any) => {
+          if (context && context.isPdf) {
+            const pdfData = JSON.stringify({
+              type: 'pdf',
+              source: context.pdfSource,
+              url: context.currentUrl,
+              title: context.pageTitle,
+              timestamp: new Date().toISOString()
+            });
+            setCapturedText(pdfData);
+            toast({
+              title: "PDF captured",
+              description: `${context.pdfSource === 'local' ? 'Local' : 'Online'} PDF ready to save`,
+            });
+          }
+        }
+      );
+    }
   };
 
   /**
    * HANDLER: Add new knowledge base
-   *
-   * This function handles adding a new knowledge base:
-   * 1. Validates the name is not empty
-   * 2. Creates a new knowledge base entry
-   * 3. Adds it to the list
-   * 4. Selects it automatically
-   * 5. Closes the dialog
-   * 6. Shows success toast
    */
-  const handleAddKnowledgeBase = () => {
+  const handleAddKnowledgeBase = async () => {
     // Validate name
     if (!newKnowledgeBaseName.trim()) {
       toast({
@@ -164,34 +419,33 @@ export function CaptureView() {
       return;
     }
 
-    // Create ID from name (lowercase, replace spaces with hyphens)
-    const newId = newKnowledgeBaseName.toLowerCase().replace(/\s+/g, '-');
+    try {
+      // Create collection via API
+      const response = await createCollection(newKnowledgeBaseName);
 
-    // Check if already exists
-    if (knowledgeBases.some(kb => kb.id === newId)) {
+      // Reload collections list
+      await loadKnowledgeBases();
+
+      // Select the new knowledge base
+      setSelectedKnowledgeBase(newKnowledgeBaseName);
+
+      // Show success toast
       toast({
-        title: "Already exists",
-        description: "A knowledge base with this name already exists.",
+        title: "✓ Knowledge base created!",
+        description: response.message,
       });
-      return;
+
+      // Clear input and close dialog
+      setNewKnowledgeBaseName("");
+      setIsDialogOpen(false);
+
+    } catch (error) {
+      console.error('Failed to create knowledge base:', error);
+      toast({
+        title: "Error creating knowledge base",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
     }
-
-    // Add to list
-    const newKB = { id: newId, name: newKnowledgeBaseName };
-    setKnowledgeBases([...knowledgeBases, newKB]);
-
-    // Select the new knowledge base
-    setSelectedKnowledgeBase(newId);
-
-    // Show success toast
-    toast({
-      title: "✓ Knowledge base created!",
-      description: `"${newKnowledgeBaseName}" has been added.`,
-    });
-
-    // Clear input and close dialog
-    setNewKnowledgeBaseName("");
-    setIsDialogOpen(false);
   };
 
   return (
@@ -199,19 +453,19 @@ export function CaptureView() {
       {/* Main content area - Empty state */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         {/* Icon display - file and database icons in dashed circle */}
-        <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center gap-3 mb-6">
-          <FileText className="w-8 h-8 text-gray-400" />
-          <Database className="w-8 h-8 text-gray-400" />
+        <div className="w-32 h-32 rounded-full border-2 border-dashed border-border flex items-center justify-center gap-3 mb-6">
+          <FileText className="w-8 h-8 text-muted-foreground" />
+          <Database className="w-8 h-8 text-muted-foreground" />
         </div>
 
         {/* Instructions */}
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+        <h2 className="text-xl font-semibold text-foreground mb-2">
           Start capturing knowledge
         </h2>
-        <p className="text-sm text-gray-500 text-center max-w-xs">
-          Use <code className="bg-gray-100 px-2 py-0.5 rounded">/select</code>{" "}
+        <p className="text-sm text-muted-foreground text-center max-w-xs">
+          Use <code className="bg-muted px-2 py-0.5 rounded">/select</code>{" "}
           to capture text or{" "}
-          <code className="bg-gray-100 px-2 py-0.5 rounded">/url</code> to add
+          <code className="bg-muted px-2 py-0.5 rounded">/url</code> to add
           a webpage
         </p>
       </div>
@@ -244,12 +498,36 @@ export function CaptureView() {
 
       {/* Input area */}
       <div className="px-6 pb-3">
-        <Input
-          placeholder="Use /select or /url to capture content..."
-          className="mb-2"
-          value={capturedText}
-          onChange={(e) => setCapturedText(e.target.value)}
-        />
+        <div className="relative mb-2">
+          <Input
+            placeholder="Type / for commands or paste content..."
+            value={capturedText}
+            onChange={handleInputChange}
+          />
+
+          {/* Command dropdown */}
+          {showCommandDropdown && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+              {availableCommands
+                .filter(cmd => cmd.available)
+                .map((cmd) => (
+                  <button
+                    key={cmd.command}
+                    className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 transition-colors"
+                    onClick={() => handleCommandSelect(cmd.command)}
+                  >
+                    <code className="text-blue-600 font-semibold">{cmd.command}</code>
+                    <span className="text-sm text-muted-foreground">{cmd.description}</span>
+                  </button>
+                ))}
+              {availableCommands.filter(cmd => cmd.available).length === 0 && (
+                <div className="px-4 py-3 text-sm text-muted-foreground">
+                  No commands available
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between">
         {/* Bottom bar: Knowledge base selector + Save button */}
         <div className="flex items-center gap-2">
@@ -263,8 +541,8 @@ export function CaptureView() {
             </SelectTrigger>
             <SelectContent>
               {knowledgeBases.map((kb) => (
-                <SelectItem key={kb.id} value={kb.id}>
-                  {kb.name}
+                <SelectItem key={kb} value={kb}>
+                  {kb}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -360,12 +638,17 @@ export function CaptureView() {
                 size="icon"
                 className="rounded-full w-12 h-12 shrink-0 bg-blue-500 hover:bg-blue-600 cursor-pointer"
                 onClick={handleSave}
+                disabled={isCapturing}
               >
-                <Bookmark className="w-5 h-5 text-white" />
+                {isCapturing ? (
+                  <Loader2 className="w-5 h-5 text-white animate-spin" />
+                ) : (
+                  <Bookmark className="w-5 h-5 text-white" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Save to knowledge base</p>
+              <p>{isCapturing ? "Capturing..." : "Save to knowledge base"}</p>
             </TooltipContent>
           </Tooltip>
         </div>
