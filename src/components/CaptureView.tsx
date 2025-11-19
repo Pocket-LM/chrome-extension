@@ -1,4 +1,4 @@
-import { FileText, Database, Bookmark, Plus, Mouse, Link, Loader2 } from "lucide-react";
+import { FileText, Database, Bookmark, Plus, Mouse, Link, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -110,6 +110,11 @@ export function CaptureView() {
   const [isCapturing, setIsCapturing] = useState(false);
 
   /**
+   * STATE: Selected PDF file from local upload
+   */
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+
+  /**
    * EFFECT: Request captured text, page context, and load knowledge bases on mount
    */
   useEffect(() => {
@@ -194,6 +199,13 @@ export function CaptureView() {
    * HANDLER: Save captured content to knowledge base
    */
   const handleSave = async () => {
+    // Check if we have a PDF file uploaded
+    if (selectedPdfFile) {
+      // Handle PDF file upload
+      await handlePdfFileUpload();
+      return;
+    }
+
     // Validate input
     if (!capturedText.trim()) {
       toast({
@@ -448,6 +460,75 @@ export function CaptureView() {
     }
   };
 
+  /**
+   * HANDLER: Handle PDF file selection
+   */
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (file.type !== 'application/pdf') {
+      toast({
+        title: "Invalid file type",
+        description: "Please select a PDF file.",
+      });
+      return;
+    }
+
+    setSelectedPdfFile(file);
+    setCapturedText(`📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+
+    toast({
+      title: "PDF file selected",
+      description: `${file.name} ready to upload`,
+    });
+  };
+
+  /**
+   * HANDLER: Upload PDF file to knowledge base
+   */
+  const handlePdfFileUpload = async () => {
+    if (!selectedPdfFile) return;
+
+    // Validate knowledge base is selected
+    if (!selectedKnowledgeBase) {
+      toast({
+        title: "No knowledge base selected",
+        description: "Please select a knowledge base first.",
+      });
+      return;
+    }
+
+    setIsCapturing(true);
+
+    try {
+      const response = await captureKnowledge({
+        type: 'pdf',
+        knowledge_base: selectedKnowledgeBase,
+        pdf: selectedPdfFile,
+      });
+
+      toast({
+        title: "✓ PDF uploaded!",
+        description: response.message,
+      });
+
+      // Clear selection
+      setSelectedPdfFile(null);
+      setCapturedText("");
+
+    } catch (error) {
+      console.error('PDF upload error:', error);
+      toast({
+        title: "Error uploading PDF",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Main content area - Empty state */}
@@ -498,16 +579,46 @@ export function CaptureView() {
 
       {/* Input area */}
       <div className="px-6 pb-3">
-        <div className="relative mb-2">
+        <div className="relative mb-2 flex items-center gap-2">
           <Input
             placeholder="Type / for commands or paste content..."
             value={capturedText}
             onChange={handleInputChange}
+            className="flex-1"
+          />
+
+          {/* PDF Upload Button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <label htmlFor="pdf-upload">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="rounded-full w-12 h-12 shrink-0 cursor-pointer"
+                  onClick={() => document.getElementById('pdf-upload')?.click()}
+                >
+                  <Upload className="w-5 h-5" />
+                </Button>
+              </label>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Upload PDF file</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Hidden file input */}
+          <input
+            id="pdf-upload"
+            type="file"
+            accept="application/pdf"
+            onChange={handleFileSelect}
+            className="hidden"
           />
 
           {/* Command dropdown */}
           {showCommandDropdown && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+            <div className="absolute bottom-full left-0 right-[60px] mb-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
               {availableCommands
                 .filter(cmd => cmd.available)
                 .map((cmd) => (
