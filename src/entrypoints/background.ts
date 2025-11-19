@@ -141,9 +141,27 @@ export default defineBackground(() => {
           const url = tabs[0].url || '';
           const title = tabs[0].title || '';
 
-          // Detect if PDF
-          const isPdf = url.toLowerCase().endsWith('.pdf') ||
-                        url.startsWith('file://') && url.toLowerCase().includes('.pdf');
+          // Detect if PDF - multiple detection methods
+          const urlLower = url.toLowerCase();
+          const isPdf =
+            // Direct PDF file extension
+            urlLower.endsWith('.pdf') ||
+            // PDF in URL path or query parameters
+            urlLower.includes('.pdf') ||
+            // Common PDF viewer URLs
+            urlLower.includes('/pdf/') ||
+            urlLower.includes('pdf=') ||
+            urlLower.includes('file=') && urlLower.includes('pdf') ||
+            // Google Drive PDF viewer
+            urlLower.includes('drive.google.com') && urlLower.includes('/file/d/') ||
+            // Common document viewers that might serve PDFs
+            urlLower.includes('pdfviewer') ||
+            urlLower.includes('pdf-viewer') ||
+            // Chrome's PDF viewer
+            title.toLowerCase().endsWith('.pdf') ||
+            // Check if it's a chrome-extension:// PDF viewer
+            urlLower.startsWith('chrome-extension://') && urlLower.includes('pdf');
+
           const pdfSource = url.startsWith('file://') ? 'local' : 'online';
 
           // Try to get selected text
