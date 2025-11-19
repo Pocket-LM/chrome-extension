@@ -219,19 +219,9 @@ export function ChatView() {
                   message.type === 'human' ? 'justify-end' : 'justify-start'
                 }`}
               >
-                {message.type === 'ai' && (
-                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                )}
-                <div
-                  className={`max-w-[75%] rounded-lg px-4 py-2 ${
-                    message.type === 'human'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-muted text-foreground'
-                  }`}
-                >
-                  {message.type === 'human' ? (
+                {message.type === 'human' ? (
+                  /* Human message - with background box, no icon */
+                  <div className="max-w-[75%] rounded-lg px-4 py-2 bg-blue-500 text-white">
                     <div className="relative">
                       {message.knowledgeBase && (
                         <div className="flex items-start mb-1">
@@ -242,30 +232,21 @@ export function ChatView() {
                       )}
                       <p className="text-sm whitespace-pre-wrap">{message.messageContent}</p>
                     </div>
-                  ) : (
-                    <div className="text-sm markdown-content">
-                      <ReactMarkdown>{message.messageContent}</ReactMarkdown>
-                    </div>
-                  )}
-                </div>
-                {message.type === 'human' && (
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <User className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                ) : (
+                  /* AI message - full width, no background, no icon */
+                  <div className="w-full text-sm markdown-content text-foreground">
+                    <ReactMarkdown>{message.messageContent}</ReactMarkdown>
                   </div>
                 )}
               </div>
             ))}
             {isLoading && (
-              <div className="flex gap-3 justify-start">
-                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
-                <div className="bg-muted rounded-lg px-4 py-2">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
+              <div className="flex gap-3 justify-start w-full">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                 </div>
               </div>
             )}
