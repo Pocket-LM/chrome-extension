@@ -1,4 +1,4 @@
-import { FileText, Database, Bookmark, Plus, Mouse, Link, Loader2, Upload } from "lucide-react";
+import { FileText, Database, Bookmark, Plus, Mouse, Link, Loader2, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,9 +22,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { captureKnowledge, listCollections, createCollection } from "@/services/api";
+import { captureKnowledge, listCollections, createCollection, deleteCollection } from "@/services/api";
 
 /**
  * CaptureView Component
@@ -71,6 +71,26 @@ export function CaptureView() {
    * STATE: Dialog open/close state
    */
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  /**
+   * STATE: Delete dialog open/close state
+   */
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
+  /**
+   * STATE: Knowledge base to be deleted
+   */
+  const [kbToDelete, setKbToDelete] = useState<string | null>(null);
+
+  /**
+   * STATE: Knowledge base dropdown open/close
+   */
+  const [isKbDropdownOpen, setIsKbDropdownOpen] = useState(false);
+
+  /**
+   * REF: Knowledge base dropdown reference for click-outside detection
+   */
+  const kbDropdownRef = useRef<HTMLDivElement>(null);
 
   /**
    * STATE: Command dropdown visibility
@@ -148,6 +168,25 @@ export function CaptureView() {
     // Load knowledge bases from API
     loadKnowledgeBases();
   }, []);
+
+  /**
+   * EFFECT: Handle click outside to close knowledge base dropdown
+   */
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (kbDropdownRef.current && !kbDropdownRef.current.contains(event.target as Node)) {
+        setIsKbDropdownOpen(false);
+      }
+    };
+
+    if (isKbDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isKbDropdownOpen]);
 
   /**
    * Load knowledge bases from backend
@@ -430,6 +469,16 @@ export function CaptureView() {
   };
 
   /**
+   * HANDLER: Handle Enter key press in input
+   */
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    }
+  };
+
+  /**
    * HANDLER: Command selection
    */
   const handleCommandSelect = async (command: string) => {
@@ -523,6 +572,54 @@ export function CaptureView() {
         description: error instanceof Error ? error.message : "Please try again.",
       });
     }
+  };
+
+  /**
+   * HANDLER: Delete knowledge base
+   */
+  const handleDeleteKnowledgeBase = async () => {
+    // Validate selection
+    if (!kbToDelete) {
+      toast({
+        title: "No knowledge base selected",
+        description: "Please select a knowledge base to delete.",
+      });
+      return;
+    }
+
+    try {
+      // Delete collection via API
+      const response = await deleteCollection(kbToDelete);
+
+      // Reload collections list
+      await loadKnowledgeBases();
+
+      // Show success toast
+      toast({
+        title: "✓ Knowledge base deleted!",
+        description: response.message,
+      });
+
+      // Close dialog
+      setIsDeleteDialogOpen(false);
+      setKbToDelete(null);
+
+    } catch (error) {
+      console.error('Failed to delete knowledge base:', error);
+      toast({
+        title: "Error deleting knowledge base",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
+
+  /**
+   * HANDLER: Open delete confirmation dialog
+   */
+  const handleOpenDeleteDialog = (kb: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent dropdown from closing
+    setKbToDelete(kb);
+    setIsDeleteDialogOpen(true);
   };
 
   /**
@@ -649,6 +746,7 @@ export function CaptureView() {
             placeholder="Type / for commands or paste content..."
             value={capturedText}
             onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
             className="flex-1"
           />
 
@@ -706,23 +804,49 @@ export function CaptureView() {
         </div>
         <div className="flex items-center justify-between">
         {/* Bottom bar: Knowledge base selector + Save button */}
-        <div className="flex items-center gap-2">
-          {/* Knowledge base dropdown selector - dynamically populated */}
-          <Select
-            value={selectedKnowledgeBase}
-            onValueChange={setSelectedKnowledgeBase}
-          >
-            <SelectTrigger className="flex-1">
-              <SelectValue placeholder="Select knowledge base" />
-            </SelectTrigger>
-            <SelectContent>
-              {knowledgeBases.map((kb) => (
-                <SelectItem key={kb} value={kb}>
-                  {kb}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-2 flex-1">
+          {/* Custom Knowledge base dropdown with delete buttons */}
+          <div className="relative w-[70%]" ref={kbDropdownRef}>
+            <button
+              onClick={() => setIsKbDropdownOpen(!isKbDropdownOpen)}
+              className="flex h-auto w-full items-center justify-between rounded-2xl border border-border bg-background text-foreground px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <span>{selectedKnowledgeBase || "Select knowledge base"}</span>
+              <svg className="h-4 w-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* Dropdown menu */}
+            {isKbDropdownOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-xl shadow-lg z-50 max-h-[200px] overflow-y-auto">
+                {knowledgeBases.map((kb) => (
+                  <div
+                    key={kb}
+                    className="flex items-center justify-between px-4 py-2 hover:bg-accent cursor-pointer group"
+                    onClick={() => {
+                      setSelectedKnowledgeBase(kb);
+                      setIsKbDropdownOpen(false);
+                    }}
+                  >
+                    <span className="text-sm text-foreground">{kb}</span>
+                    <button
+                      onClick={(e) => handleOpenDeleteDialog(kb, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/10 rounded transition-opacity"
+                      title="Delete knowledge base"
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </button>
+                  </div>
+                ))}
+                {knowledgeBases.length === 0 && (
+                  <div className="px-4 py-3 text-sm text-muted-foreground">
+                    No knowledge bases
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Add new knowledge base button with tooltip and dialog */}
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -830,6 +954,39 @@ export function CaptureView() {
         </div>
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="max-w-[340px]">
+          <DialogHeader>
+            <DialogTitle>Delete Knowledge Base</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{kbToDelete}"? This action cannot be undone and all data will be permanently removed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-row gap-2 justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsDeleteDialogOpen(false);
+                setKbToDelete(null);
+              }}
+              className="w-[150px]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDeleteKnowledgeBase}
+              className="w-[150px]"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
