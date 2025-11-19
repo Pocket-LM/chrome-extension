@@ -199,8 +199,13 @@ export function CaptureView() {
    * HANDLER: Save captured content to knowledge base
    */
   const handleSave = async () => {
+    console.log('=== HANDLE SAVE CALLED ===');
+    console.log('Selected PDF file:', selectedPdfFile);
+    console.log('Captured text:', capturedText);
+
     // Check if we have a PDF file uploaded
     if (selectedPdfFile) {
+      console.log('Handling local PDF file upload');
       // Handle PDF file upload
       await handlePdfFileUpload();
       return;
@@ -208,6 +213,7 @@ export function CaptureView() {
 
     // Validate input
     if (!capturedText.trim()) {
+      console.log('No text to save');
       toast({
         title: "Nothing to save",
         description: "Please enter some text or URL to capture.",
@@ -217,6 +223,7 @@ export function CaptureView() {
 
     // Validate knowledge base is selected
     if (!selectedKnowledgeBase) {
+      console.log('No knowledge base selected');
       toast({
         title: "No knowledge base selected",
         description: "Please select a knowledge base first.",
@@ -230,35 +237,46 @@ export function CaptureView() {
       // Try to parse as JSON (for structured data like PDFs)
       let captureData;
       try {
+        console.log('Attempting to parse captured text as JSON...');
         captureData = JSON.parse(capturedText);
+        console.log('Parsed JSON data:', captureData);
       } catch {
+        console.log('Not JSON, treating as plain text');
         // Plain text - determine if it's a URL or selection
         captureData = {
           type: isUrl(capturedText) ? 'url' : 'selection',
           content: capturedText,
         };
+        console.log('Plain text data:', captureData);
       }
 
       // Route to appropriate API call based on type
+      console.log('Routing to handler based on type:', captureData.type);
       if (captureData.type === 'pdf') {
+        console.log('Routing to PDF handler');
         await handlePdfCapture(captureData);
       } else if (captureData.type === 'url' || isUrl(captureData.content)) {
+        console.log('Routing to URL handler');
         await handleUrlCapture(captureData.content);
       } else {
+        console.log('Routing to selection handler');
         await handleSelectionCapture(captureData.content);
       }
 
       // Clear input on success
       setCapturedText("");
+      console.log('Save completed successfully');
 
     } catch (error) {
-      console.error('Save error:', error);
+      console.error('=== SAVE ERROR ===');
+      console.error('Error details:', error);
       toast({
         title: "Error saving",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     } finally {
       setIsCapturing(false);
+      console.log('=== HANDLE SAVE COMPLETE ===');
     }
   };
 
@@ -315,37 +333,84 @@ export function CaptureView() {
    * Handle PDF capture
    */
   async function handlePdfCapture(captureData: any) {
-    if (captureData.source === 'local' && captureData.url) {
-      // Fetch local PDF file
-      const fileResponse = await fetch(captureData.url);
-      if (!fileResponse.ok) {
-        throw new Error('Failed to read local PDF file');
+    console.log('=== PDF CAPTURE START ===');
+    console.log('Capture data:', captureData);
+    console.log('Source:', captureData.source);
+    console.log('URL:', captureData.url);
+    console.log('Knowledge base:', selectedKnowledgeBase);
+
+    // For both local and online PDFs, fetch the PDF and send as file
+    if (captureData.url) {
+      try {
+        // Show downloading toast for online PDFs
+        if (captureData.source === 'online') {
+          console.log('Online PDF detected - showing download toast');
+          toast({
+            title: "Downloading PDF...",
+            description: "Fetching PDF from URL",
+          });
+        }
+
+        // Fetch PDF file (works for both local file:// and online https:// URLs)
+        console.log('Fetching PDF from URL...');
+        const fileResponse = await fetch(captureData.url);
+        console.log('Fetch response status:', fileResponse.status, fileResponse.statusText);
+        console.log('Response headers:', Object.fromEntries(fileResponse.headers.entries()));
+
+        if (!fileResponse.ok) {
+          throw new Error(`Failed to fetch PDF: ${fileResponse.statusText}`);
+        }
+
+        console.log('Converting response to blob...');
+        const blob = await fileResponse.blob();
+        console.log('Blob created - size:', blob.size, 'bytes, type:', blob.type);
+
+        const fileName = captureData.title || captureData.url.split('/').pop() || 'document.pdf';
+        console.log('File name:', fileName);
+
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        console.log('File object created:', {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified
+        });
+
+        // Send PDF as file to backend
+        console.log('Sending PDF to backend...');
+        console.log('Request params:', {
+          type: 'pdf',
+          knowledge_base: selectedKnowledgeBase,
+          pdf_name: file.name,
+          pdf_size: file.size
+        });
+
+        const response = await captureKnowledge({
+          type: 'pdf',
+          knowledge_base: selectedKnowledgeBase,
+          pdf: file,
+        });
+
+        console.log('Backend response:', response);
+
+        toast({
+          title: "✓ PDF captured!",
+          description: response.message,
+        });
+        console.log('=== PDF CAPTURE SUCCESS ===');
+      } catch (error) {
+        console.error('=== PDF CAPTURE ERROR ===');
+        console.error('Error details:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
+        throw new Error(
+          error instanceof Error
+            ? error.message
+            : 'Failed to download PDF. Please try uploading the file directly.'
+        );
       }
-      const blob = await fileResponse.blob();
-      const file = new File([blob], captureData.title || 'document.pdf', { type: 'application/pdf' });
-
-      const response = await captureKnowledge({
-        type: 'pdf',
-        knowledge_base: selectedKnowledgeBase,
-        pdf: file,
-      });
-
-      toast({
-        title: "✓ PDF captured!",
-        description: response.message,
-      });
-    } else if (captureData.url) {
-      // Online PDF - send URL
-      const response = await captureKnowledge({
-        type: 'pdf',
-        knowledge_base: selectedKnowledgeBase,
-        url: captureData.url,
-      });
-
-      toast({
-        title: "✓ PDF captured!",
-        description: response.message,
-      });
+    } else {
+      console.error('No PDF URL provided in capture data');
+      throw new Error('No PDF URL provided');
     }
   }
 
