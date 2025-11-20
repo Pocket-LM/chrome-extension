@@ -67,44 +67,16 @@ export default defineBackground(() => {
    * STEP 4: Handle Keyboard Shortcuts
    *
    * This listener fires when user presses a registered keyboard shortcut.
-   * We defined "capture-url" in wxt.config.ts as Ctrl+Shift+U.
+   * We defined "capture-url" in wxt.config.ts as Ctrl+Shift+U (Cmd+Shift+U on Mac).
    *
-   * When triggered, we need to:
-   * 1. Get the currently active tab
-   * 2. Extract its URL
-   * 3. Store the URL
-   * 4. Open the popup
+   * When triggered, we simply open the popup without capturing any content.
    */
   browser.commands.onCommand.addListener(async (command) => {
     console.log('Command received:', command);
 
     if (command === 'capture-url') {
-      /**
-       * Get the currently active tab
-       *
-       * browser.tabs.query() searches for tabs matching criteria:
-       * - active: true - The tab currently visible to user
-       * - currentWindow: true - In the current Chrome window
-       *
-       * Returns an array, we take the first one [0]
-       */
-      const tabs = await browser.tabs.query({
-        active: true,
-        currentWindow: true
-      });
-
-      if (tabs[0]) {
-        const currentTab = tabs[0];
-        const url = currentTab.url || '';
-
-        console.log('URL captured:', url);
-
-        // Store the URL in our capturedText variable
-        capturedText = url;
-
-        // Open the popup to show the URL
-        browser.action.openPopup();
-      }
+      // Simply open the popup - no automatic content capture
+      browser.action.openPopup();
     }
   });
 
@@ -141,9 +113,27 @@ export default defineBackground(() => {
           const url = tabs[0].url || '';
           const title = tabs[0].title || '';
 
-          // Detect if PDF
-          const isPdf = url.toLowerCase().endsWith('.pdf') ||
-                        url.startsWith('file://') && url.toLowerCase().includes('.pdf');
+          // Detect if PDF - multiple detection methods
+          const urlLower = url.toLowerCase();
+          const isPdf =
+            // Direct PDF file extension
+            urlLower.endsWith('.pdf') ||
+            // PDF in URL path or query parameters
+            urlLower.includes('.pdf') ||
+            // Common PDF viewer URLs
+            urlLower.includes('/pdf/') ||
+            urlLower.includes('pdf=') ||
+            urlLower.includes('file=') && urlLower.includes('pdf') ||
+            // Google Drive PDF viewer
+            urlLower.includes('drive.google.com') && urlLower.includes('/file/d/') ||
+            // Common document viewers that might serve PDFs
+            urlLower.includes('pdfviewer') ||
+            urlLower.includes('pdf-viewer') ||
+            // Chrome's PDF viewer
+            title.toLowerCase().endsWith('.pdf') ||
+            // Check if it's a chrome-extension:// PDF viewer
+            urlLower.startsWith('chrome-extension://') && urlLower.includes('pdf');
+
           const pdfSource = url.startsWith('file://') ? 'local' : 'online';
 
           // Try to get selected text
